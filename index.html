@@ -3,171 +3,112 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Live GPS Speedometer with Tracking</title>
+    <title>Real-Time GPS Tracker</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
     <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+        }
         #map {
-            height: 500px;
+            height: 70vh;
         }
         #info {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            background: rgba(255, 255, 255, 0.8);
             padding: 10px;
-            border-radius: 8px;
-            box-shadow: 0 0 8px rgba(0, 0, 0, 0.2);
-            z-index: 1000;
+            background: #f4f4f4;
+            box-shadow: 0 0 5px rgba(0, 0, 0, 0.1);
+            font-size: 16px;
         }
-        #toggle-center {
-            position: absolute;
-            top: 150px;
-            left: 10px;
-            background: #007BFF;
-            color: white;
-            border: none;
-            padding: 10px;
-            border-radius: 8px;
-            cursor: pointer;
+        #info p {
+            margin: 5px 0;
         }
     </style>
 </head>
 <body>
 
 <div id="map"></div>
-
 <div id="info">
-    <p id="lat">Latitude: 0.000000</p>
-    <p id="lng">Longitude: 0.000000</p>
-    <p id="speed">Speed: 0 km/h</p>
-    <p id="time">Time: 0 min 0 sec</p>
-    <p id="distance">Distance: 0 m</p>
+    <p><strong>Latitude:</strong> <span id="lat">Fetching...</span></p>
+    <p><strong>Longitude:</strong> <span id="lng">Fetching...</span></p>
+    <p><strong>Speed:</strong> <span id="speed">0</span> km/h</p>
+    <p><strong>Total Distance:</strong> <span id="distance">0</span> m</p>
 </div>
-<button id="toggle-center">Toggle Center</button>
 
 <script>
     // Initialize map
-    var map = L.map('map').setView([51.505, -0.09], 13);
-
-    // Add OpenStreetMap tile layer
+    const map = L.map('map').setView([0, 0], 13); // Placeholder position until GPS fetches data
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
 
-    var marker; // Marker for user's position
-    var lastPosition = null; // Last position
-    var lastTime = null; // Last timestamp
-    var totalDistance = 0; // Total distance traveled
-    var startTime = null; // Time when tracking started
-    var autoCenter = true; // Auto-center toggle
+    let marker = null; // Marker for user position
+    let previousPosition = null; // Last position
+    let totalDistance = 0; // Total distance covered
 
-    // Toggle auto-center functionality
-    document.getElementById('toggle-center').addEventListener('click', function() {
-        autoCenter = !autoCenter;
-    });
-
-    // Haversine formula for distance calculation
+    // Haversine formula for calculating distances
     function haversine(lat1, lon1, lat2, lon2) {
-        const R = 6371e3; // Earth radius in meters
-        const φ1 = lat1 * Math.PI / 180;
-        const φ2 = lat2 * Math.PI / 180;
-        const Δφ = (lat2 - lat1) * Math.PI / 180;
-        const Δλ = (lon2 - lon1) * Math.PI / 180;
+        const R = 6371e3; // Earth's radius in meters
+        const φ1 = (lat1 * Math.PI) / 180;
+        const φ2 = (lat2 * Math.PI) / 180;
+        const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+        const Δλ = ((lon2 - lon1) * Math.PI) / 180;
 
         const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-                  Math.cos(φ1) * Math.cos(φ2) *
-                  Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+                  Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         return R * c; // Distance in meters
     }
 
-    // Calculate speed based on position updates
-    function calculateSpeed(currentPosition) {
-        if (!lastPosition) {
-            lastPosition = currentPosition;
-            lastTime = new Date().getTime();
-            return 0; // No speed if this is the first reading
-        }
-
-        const { latitude: lat1, longitude: lon1 } = lastPosition.coords;
-        const { latitude: lat2, longitude: lon2 } = currentPosition.coords;
-
-        const distance = haversine(lat1, lon1, lat2, lon2); // Distance in meters
-
-        const currentTime = new Date().getTime();
-        const timeDiff = (currentTime - lastTime) / 1000; // Time difference in seconds
-
-        lastPosition = currentPosition;
-        lastTime = currentTime;
-
-        return (distance / timeDiff) * 3.6; // Speed in km/h
+    // Update UI values
+    function updateUI(lat, lng, speed, distance) {
+        document.getElementById('lat').textContent = lat.toFixed(6);
+        document.getElementById('lng').textContent = lng.toFixed(6);
+        document.getElementById('speed').textContent = speed.toFixed(2);
+        document.getElementById('distance').textContent = distance.toFixed(2);
     }
 
-    // Watch position using Geolocation API
+    // Start watching position
     if (navigator.geolocation) {
-        navigator.geolocation.watchPosition(function(position) {
-            if (position.coords.accuracy > 20) {
-                console.warn(`Ignoring low accuracy reading: ${position.coords.accuracy}m`);
-                return;
-            }
+        navigator.geolocation.watchPosition(
+            (position) => {
+                const { latitude, longitude, speed } = position.coords;
 
-            const currentPosition = position;
-            const speed = calculateSpeed(currentPosition);
+                // Update marker on map
+                if (!marker) {
+                    marker = L.marker([latitude, longitude]).addTo(map);
+                } else {
+                    marker.setLatLng([latitude, longitude]);
+                }
 
-            if (!startTime) {
-                startTime = new Date().getTime();
-            }
-            const elapsedTime = Math.floor((new Date().getTime() - startTime) / 1000);
-            const minutes = Math.floor(elapsedTime / 60);
-            const seconds = elapsedTime % 60;
+                // Center map to user's location
+                map.setView([latitude, longitude], 13);
 
-            if (lastPosition) {
-                const { latitude: lat1, longitude: lon1 } = lastPosition.coords;
-                const { latitude: lat2, longitude: lon2 } = currentPosition.coords;
-                totalDistance += haversine(lat1, lon1, lat2, lon2); // Update total distance
-            }
+                // Calculate distance if there's a previous position
+                if (previousPosition) {
+                    const distance = haversine(
+                        previousPosition.coords.latitude,
+                        previousPosition.coords.longitude,
+                        latitude,
+                        longitude
+                    );
+                    totalDistance += distance;
+                }
 
-            // Update the display with current data
-            document.getElementById('lat').textContent = `Latitude: ${currentPosition.coords.latitude.toFixed(6)}`;
-            document.getElementById('lng').textContent = `Longitude: ${currentPosition.coords.longitude.toFixed(6)}`;
-            document.getElementById('speed').textContent = `Speed: ${speed.toFixed(2)} km/h`;
-            document.getElementById('time').textContent = `Time: ${minutes} min ${seconds} sec`;
-            document.getElementById('distance').textContent = `Distance: ${totalDistance.toFixed(2)} m`;
+                // Update UI
+                updateUI(latitude, longitude, speed || 0, totalDistance);
 
-            // Update marker position
-            if (!marker) {
-                marker = L.marker([currentPosition.coords.latitude, currentPosition.coords.longitude]).addTo(map);
-            } else {
-                marker.setLatLng([currentPosition.coords.latitude, currentPosition.coords.longitude]);
-            }
-
-            // Center map on user's position if auto-center is enabled
-            if (autoCenter) {
-                map.setView([currentPosition.coords.latitude, currentPosition.coords.longitude], 13);
-            }
-        }, function(error) {
-            switch(error.code) {
-                case error.PERMISSION_DENIED:
-                    alert("Location access denied by user.");
-                    break;
-                case error.POSITION_UNAVAILABLE:
-                    alert("Location information is unavailable.");
-                    break;
-                case error.TIMEOUT:
-                    alert("Location request timed out.");
-                    break;
-                default:
-                    alert("An unknown error occurred.");
-                    break;
-            }
-        }, {
-            enableHighAccuracy: true,
-            maximumAge: 0,
-            timeout: 5000
-        });
+                // Save current position as previous
+                previousPosition = position;
+            },
+            (error) => {
+                console.error('Error fetching position:', error.message);
+                alert('Unable to fetch your location. Please enable GPS.');
+            },
+            { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
+        );
     } else {
-        alert("Geolocation is not supported by your browser.");
+        alert('Geolocation is not supported by your browser.');
     }
 </script>
 
